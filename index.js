@@ -1,3 +1,4 @@
+import { resolveLyrics } from './lyrics.js';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -13,22 +14,61 @@ const common = ['/login/qr/key', '/login/qr/create', '/login/qr/check', '/user/p
 export const routes = {
   netease: [...common, '/login/status', '/vip/info', '/playlist/track/all', '/song/url/v1', '/lyric', '/logout'],
   kugou: [...common, '/user/detail', '/user/vip/detail', '/playlist/track/all', '/song/url', '/register/dev'],
-  qq: [...common, '/login/status', '/login/channels', '/user/playlist-detail', '/getSongListDetail', '/getMusicPlay', '/logout'],
+  qq: [
+    ...common,
+    '/login/status',
+    '/login/channels',
+    '/user/playlist-detail',
+    '/getSongListDetail',
+    '/getMusicPlay',
+    '/logout',
+  ],
 };
 // No arbitrary proxy URLs, network options, uploads or write-to-playlist endpoints.
-const allowed = new Set(['timestamp','cookie','key','qrimg','channel','qrcode','userid','uid','id','limit','offset','pagesize','page','tid','dirid','disstid','songmid','quality','hash','level']);
+const allowed = new Set([
+  'timestamp',
+  'cookie',
+  'key',
+  'qrimg',
+  'channel',
+  'qrcode',
+  'userid',
+  'uid',
+  'id',
+  'limit',
+  'offset',
+  'pagesize',
+  'page',
+  'tid',
+  'dirid',
+  'disstid',
+  'songmid',
+  'quality',
+  'hash',
+  'level',
+]);
 const users = new Map();
 async function userState(root) {
-  if (!users.has(root)) users.set(root, (async () => {
-    const directory = path.join(root, 'electric-phone-music');
-    await mkdir(directory, { recursive: true });
-    const filename = path.join(directory, 'session-secret');
-    try { await writeFile(filename, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 }); }
-    catch (e) { if (e.code !== 'EEXIST') throw e; }
-    const secret = (await readFile(filename, 'utf8')).trim();
-    if (!/^[a-f0-9]{64}$/.test(secret)) throw new Error('Invalid session secret');
-    return { secret, relay: createRelay(), active: 0 };
-  })().catch(error => { users.delete(root); throw error; }));
+  if (!users.has(root))
+    users.set(
+      root,
+      (async () => {
+        const directory = path.join(root, 'electric-phone-music');
+        await mkdir(directory, { recursive: true });
+        const filename = path.join(directory, 'session-secret');
+        try {
+          await writeFile(filename, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 });
+        } catch (e) {
+          if (e.code !== 'EEXIST') throw e;
+        }
+        const secret = (await readFile(filename, 'utf8')).trim();
+        if (!/^[a-f0-9]{64}$/.test(secret)) throw new Error('Invalid session secret');
+        return { secret, relay: createRelay(), active: 0 };
+      })().catch(error => {
+        users.delete(root);
+        throw error;
+      }),
+    );
   return users.get(root);
 }
 export function installRoutes(router, dependencies = {}) {
@@ -37,7 +77,28 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.1.0', providers: ['netease','qq','kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.2.0', providers: ['netease', 'qq', 'kugou'] });
+  });
+  router.post('/lyrics', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
+    const { source, id, title, artist } = req.body || {};
+    if (
+      !['netease', 'qq', 'kugou', 'other'].includes(source) ||
+      [id, title, artist].some(value => typeof value !== 'string' || value.length > 200)
+    )
+      return res.status(400).json({ message: '歌词查询参数无效' });
+    const state = await stateFor(req.user.directories.root).catch(() => null);
+    if (!state) return res.status(503).json({ message: '歌词服务暂不可用' });
+    if (state.active >= 6) return res.status(429).json({ message: '音乐请求过多' });
+    state.active++;
+    try {
+      res.json(await resolveLyrics({ source, id, title, artist }));
+    } catch {
+      res.status(502).json({ message: '歌词暂不可用' });
+    } finally {
+      state.active--;
+    }
   });
   router.post('/:provider/*', async (req, res) => {
     const provider = req.params.provider;
@@ -47,7 +108,7 @@ export function installRoutes(router, dependencies = {}) {
     if (!routes[provider]?.includes(endpoint)) return res.status(404).json({ message: '不支持的音乐接口' });
     const params = {};
     for (const [key, value] of Object.entries(req.body || {})) {
-      if (!allowed.has(key) || !['string','number','boolean'].includes(typeof value) || String(value).length > 20000)
+      if (!allowed.has(key) || !['string', 'number', 'boolean'].includes(typeof value) || String(value).length > 20000)
         return res.status(400).json({ message: '无效的音乐请求参数' });
       params[key] = value;
     }
@@ -68,15 +129,25 @@ export function installRoutes(router, dependencies = {}) {
         const body = result.body || result;
         // Return login cookies as JSON only; never set music cookies on the SillyTavern origin.
         return res.status(200).json({ ...body, ...(result.cookie ? { cookie: result.cookie } : {}) });
-      } finally { state.active--; }
+      } finally {
+        state.active--;
+      }
     } catch {
       // Upstream errors may contain account credentials: do not log or echo them.
       if (!res.headersSent) res.status(502).json({ message: '音乐平台暂时无法连接，请稍后重试' });
     }
   });
 }
-export async function init(router) { installRoutes(router); }
+export async function init(router) {
+  installRoutes(router);
+}
 export async function exit() {
-  await Promise.all([...users.values()].map(async pending => { try { await (await pending).relay.dispose(); } catch {} }));
+  await Promise.all(
+    [...users.values()].map(async pending => {
+      try {
+        await (await pending).relay.dispose();
+      } catch {}
+    }),
+  );
   users.clear();
 }
