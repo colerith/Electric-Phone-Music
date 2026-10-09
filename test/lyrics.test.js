@@ -56,3 +56,22 @@ test('Kugou candidate search and decoded timed lyrics fallback', async () => {
     'kugou',
   );
 });
+
+test('translation and romanization retain their own timestamps', async () => {
+  const resolver = createLyricsResolver({
+    netease: {
+      lyric: async () => ({
+        body: {
+          lrc: { lyric: '[00:01]Hello' },
+          tlyric: { lyric: '[00:01]你好' },
+          romalrc: { lyric: '[00:01]hello' },
+        },
+      }),
+    },
+    kugou: {},
+    text: async () => '',
+  });
+  const result = await resolver({ source: 'netease', id: '1', alternates: true });
+  assert.equal(result.translation, '[00:01]你好');
+  assert.equal(result.romanization, '[00:01]hello');
+});

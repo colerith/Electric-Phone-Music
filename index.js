@@ -77,7 +77,7 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.2.0', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.3.0', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -93,7 +93,7 @@ export function installRoutes(router, dependencies = {}) {
     if (state.active >= 6) return res.status(429).json({ message: '音乐请求过多' });
     state.active++;
     try {
-      res.json(await resolveLyrics({ source, id, title, artist }));
+      res.json(await resolveLyrics({ source, id, title, artist, alternates: req.body?.alternates === true }));
     } catch {
       res.status(502).json({ message: '歌词暂不可用' });
     } finally {
