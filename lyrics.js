@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { qqLyricTracks } from './qq-lyrics.js';
 const require = createRequire(import.meta.url);
 const netease = require('@neteasecloudmusicapienhanced/api');
 const kugou = require('kugoumusicapi');
@@ -42,7 +43,7 @@ async function text(url, headers = {}) {
   if (body.length > 1000000) throw Error('Lyrics too large');
   return body;
 }
-export function createLyricsResolver(services = { netease, kugou, text }) {
+export function createLyricsResolver(services = { netease, kugou, text, qqLyricTracks }) {
   return async target => {
     const id = String(target.id || ''),
       source = target.source;
@@ -72,6 +73,11 @@ export function createLyricsResolver(services = { netease, kugou, text }) {
         const lyric = timed(data.lyric) ? data.lyric : Buffer.from(String(data.lyric || ''), 'base64').toString('utf8');
         const decode = value => (timed(value) ? value : Buffer.from(String(value || ''), 'base64').toString('utf8'));
         return lrc(lyric, 'qq', decode(data.trans), decode(data.roma));
+      });
+    if (mid && services.qqLyricTracks && target.alternates)
+      candidates.push(async () => {
+        const result = await services.qqLyricTracks(target);
+        return result.translation || result.romanization || result.lyric ? result : null;
       });
     if (neteaseId || mid)
       candidates.push(async () => {
@@ -104,37 +110,47 @@ export function createLyricsResolver(services = { netease, kugou, text }) {
       const result2 = await services.kugou.lyric({ id: row.id, accesskey: row.accesskey, fmt: 'lrc', decode: true });
       return lrc(result2.body?.decodeContent, 'kugou');
     });
-    let original = null;
+    let original = null,
+      alternate = null;
     for (const candidate of candidates) {
       try {
         const result = await bounded(candidate);
         if (result) {
-          original ||= result;
-          if (
-            !target.alternates ||
-            result.translation ||
-            result.romanization ||
-            (result.format === 'ttml' && /translation|romanization/.test(result.lyric))
-          )
-            return result;
+          if (result.lyric) original ||= result;
+          if (result.translation || result.romanization) alternate ||= result;
+          const desired = target.alternate === 'romanization' ? 'romanization' : 'translation';
+          if (!target.alternates || result[desired] || (result.format === 'ttml' && result.lyric.includes(desired)))
+            return result.lyric ? result : { ...result, lyric: original?.format === 'lrc' ? original.lyric : '' };
         }
       } catch {
         /* Try the next fixed provider. */
       }
     }
-    return original || { lyric: '', format: 'lrc', source: '' };
+    return alternate || original || { lyric: '', format: 'lrc', source: '' };
   };
 }
 const resolve = createLyricsResolver();
 export async function resolveLyrics(target) {
-  const key = JSON.stringify([target.source, target.id, target.title, target.artist, Boolean(target.alternates)]);
+  const key = JSON.stringify([
+    target.source,
+    target.id,
+    target.songId,
+    target.title,
+    target.artist,
+    Boolean(target.alternates),
+    target.alternate,
+  ]);
   const cached = cache.get(key);
   if (cached && cached.until > Date.now()) return cached.value;
   if (pending.has(key)) return pending.get(key);
   const promise = resolve(target)
     .then(value => {
       if (cache.size >= 200) cache.delete(cache.keys().next().value);
-      cache.set(key, { value, until: Date.now() + (value.lyric ? 21600000 : 30000) });
+      const found = target.alternates
+        ? value[target.alternate === 'romanization' ? 'romanization' : 'translation'] ||
+          (value.format === 'ttml' && value.lyric.includes(target.alternate || 'translation'))
+        : value.lyric;
+      cache.set(key, { value, until: Date.now() + (found ? 21600000 : 30000) });
       return value;
     })
     .finally(() => pending.delete(key));

@@ -75,3 +75,11 @@ test('translation and romanization retain their own timestamps', async () => {
   assert.equal(result.translation, '[00:01]你好');
   assert.equal(result.romanization, '[00:01]hello');
 });
+
+test('romanization alone does not stop requested translation fallback',async()=>{
+ const result=await createLyricsResolver({
+  netease:{},kugou:{},text:async()=>JSON.stringify({lyric:'[00:01]original',roma:'[00:01]romaji'}),
+  qqLyricTracks:async()=>({lyric:'',translation:'[00:01]译文',romanization:'',source:'qq',format:'lrc'}),
+ })({source:'qq',id:'songmid123',songId:'123',alternates:true,alternate:'translation'});
+ assert.equal(result.translation,'[00:01]译文');assert.equal(result.lyric,'[00:01]original');
+});

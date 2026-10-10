@@ -97,15 +97,18 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.1', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.2', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    const { source, id, title, artist } = req.body || {};
+    const { source, id, title, artist, songId = '', alternate = 'translation' } = req.body || {};
     if (
       !['netease', 'qq', 'kugou', 'other'].includes(source) ||
-      [id, title, artist].some(value => typeof value !== 'string' || value.length > 200)
+      [id, title, artist].some(value => typeof value !== 'string' || value.length > 200) ||
+      typeof songId !== 'string' ||
+      (songId !== '' && !/^\d{1,16}$/.test(songId)) ||
+      !['translation', 'romanization'].includes(alternate)
     )
       return res.status(400).json({ message: '歌词查询参数无效' });
     const state = await stateFor(req.user.directories.root).catch(() => null);
@@ -113,7 +116,17 @@ export function installRoutes(router, dependencies = {}) {
     if (state.active >= 6) return res.status(429).json({ message: '音乐请求过多' });
     state.active++;
     try {
-      res.json(await resolveLyrics({ source, id, title, artist, alternates: req.body?.alternates === true }));
+      res.json(
+        await resolveLyrics({
+          source,
+          id,
+          title,
+          artist,
+          songId,
+          alternate,
+          alternates: req.body?.alternates === true,
+        }),
+      );
     } catch {
       res.status(502).json({ message: '歌词暂不可用' });
     } finally {
@@ -132,6 +145,8 @@ export function installRoutes(router, dependencies = {}) {
         return res.status(400).json({ message: '无效的音乐请求参数' });
       params[key] = value;
     }
+    if (provider === 'qq' && endpoint === '/getSongListDetail' && !/^\d{1,30}$/.test(String(params.disstid || '')))
+      return res.status(400).json({ message: '无效的 QQ 歌单 ID' });
     if (['/cloudsearch', '/getSearchByKey', '/search'].includes(endpoint)) {
       const keyword = provider === 'qq' ? params.key : params.keywords;
       if (typeof keyword !== 'string' || !keyword.trim() || keyword.length > 200)
@@ -159,8 +174,14 @@ export function installRoutes(router, dependencies = {}) {
         if (provider === 'qq' && endpoint === '/getSearchByKey')
           return res.json(await (dependencies.searchQQ || searchQQ)(params.key));
         if (provider === 'qq') {
-          const url = new URL(endpoint, 'https://electric-phone.invalid');
-          for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+          // The SDK's serverless router requires the ID in the path (unlike its Koa query alias).
+          const detail = endpoint === '/getSongListDetail';
+          const url = new URL(
+            detail ? `${endpoint}/${encodeURIComponent(String(params.disstid))}` : endpoint,
+            'https://electric-phone.invalid',
+          );
+          for (const [key, value] of Object.entries(params))
+            if (!detail || key !== 'disstid') url.searchParams.set(key, String(value));
           const upstream = await qq(new Request(url), { QQ_SESSION_SECRET: state.secret }, { qqRelay: state.relay });
           return res.status(upstream.status).json(await upstream.json());
         }

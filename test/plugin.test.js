@@ -18,7 +18,7 @@ test('authenticated, allowlisted routes, credentials and errors are isolated', a
  installRoutes(app, {
   userState: async root => { if(!states.has(root)) states.set(root,{secret:root,active:0,relay:{}}); return states.get(root); },
   libraries: { netease: { login_qr_key: async p => { calls.push(p); return {body:{code:200,data:{unikey:'key'}},cookie:['MUSIC_U=private']}; }, login_status: async()=>{throw Error('secret must never be returned');} } },
-  qq: async (req, env) => { calls.push({url:req.url,env}); if(new URL(req.url).pathname === '/getSongListDetail') return Response.json({response:{code:0,cdlist:[{dissname:'官方算法歌单',songlist:[{songmid:'test-song'}]}]}}); return Response.json({code:200,data:{profile:{nickname:env.QQ_SESSION_SECRET}}}); },
+  qq: async (req, env) => { calls.push({url:req.url,env}); if(new URL(req.url).pathname === '/getSongListDetail/12345') return Response.json({response:{code:0,cdlist:[{dissname:'官方算法歌单',songlist:[{songmid:'test-song'}]}]}}); return Response.json({code:200,data:{profile:{nickname:env.QQ_SESSION_SECRET}}}); },
  });
  const server=app.listen(0,'127.0.0.1'); await new Promise(r=>server.once('listening',r));
  t.after(()=>new Promise(r=>server.close(r)));
@@ -43,11 +43,39 @@ test('authenticated, allowlisted routes, credentials and errors are isolated', a
  assert.equal(response.status,200);
  assert.equal((await response.json()).response.cdlist[0].songlist[0].songmid,'test-song');
  const detailCall=calls.at(-1), detailUrl=new URL(detailCall.url);
- assert.equal(detailUrl.searchParams.get('disstid'),'12345');
+ assert.equal(detailUrl.pathname,'/getSongListDetail/12345');
+ assert.equal(detailUrl.searchParams.has('disstid'),false);
  assert.equal(detailUrl.searchParams.get('cookie'),'qqmusic_session=test-session');
  assert.equal(detailCall.env.QQ_SESSION_SECRET,'one');
  assert.notEqual(states.get('one'),states.get('two'));
  states.get('one').active=6;
  assert.equal((await send('/netease/login/qr/key')).status,429);
  await exit();
+});
+
+test('collected playlist passes through the real serverless SDK route', async t => {
+ const realFetch = globalThis.fetch;
+ let upstreamCalls = 0;
+ globalThis.fetch = async (url, init) => {
+  const parsed = new URL(typeof url === 'string' || url instanceof URL ? url : url.url);
+  if (parsed.hostname === 'c.y.qq.com') {
+   upstreamCalls++;
+   assert.equal(parsed.searchParams.get('disstid'), '987654321');
+   return Response.json({code:0,cdlist:[{dissname:'收藏歌单',songlist:[{mid:'song-mid',name:'完整歌曲',singer:[{name:'歌手'}]}]}]});
+  }
+  return realFetch(url, init);
+ };
+ t.after(()=>{globalThis.fetch=realFetch});
+ const app=express();app.use(express.urlencoded({extended:false}));
+ app.use((req,_res,next)=>{req.user={directories:{root:'fixture'}};next()});
+ installRoutes(app,{userState:async()=>({secret:'test-secret-long-enough-for-sdk',active:0,relay:{}})});
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ t.after(()=>new Promise(r=>server.close(r)));
+ const send=params=>realFetch(`http://127.0.0.1:${server.address().port}/qq/getSongListDetail`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(params)});
+ const response=await send({disstid:'987654321'});
+ assert.equal(response.status,200);
+ assert.equal((await response.json()).response.cdlist[0].songlist[0].mid,'song-mid');
+ assert.equal(upstreamCalls,1,'real SDK reaches the song detail service instead of a missing-route response');
+ assert.equal((await send({disstid:'../login/status'})).status,400);
+ assert.equal((await send({})).status,400);
 });
