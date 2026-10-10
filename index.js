@@ -97,7 +97,7 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.0', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.1', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');

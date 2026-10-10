@@ -18,7 +18,7 @@ test('authenticated, allowlisted routes, credentials and errors are isolated', a
  installRoutes(app, {
   userState: async root => { if(!states.has(root)) states.set(root,{secret:root,active:0,relay:{}}); return states.get(root); },
   libraries: { netease: { login_qr_key: async p => { calls.push(p); return {body:{code:200,data:{unikey:'key'}},cookie:['MUSIC_U=private']}; }, login_status: async()=>{throw Error('secret must never be returned');} } },
-  qq: async (req, env) => { calls.push({url:req.url,env}); return Response.json({code:200,data:{profile:{nickname:env.QQ_SESSION_SECRET}}}); },
+  qq: async (req, env) => { calls.push({url:req.url,env}); if(new URL(req.url).pathname === '/getSongListDetail') return Response.json({response:{code:0,cdlist:[{dissname:'官方算法歌单',songlist:[{songmid:'test-song'}]}]}}); return Response.json({code:200,data:{profile:{nickname:env.QQ_SESSION_SECRET}}}); },
  });
  const server=app.listen(0,'127.0.0.1'); await new Promise(r=>server.once('listening',r));
  t.after(()=>new Promise(r=>server.close(r)));
@@ -39,6 +39,13 @@ test('authenticated, allowlisted routes, credentials and errors are isolated', a
   response=await send('/qq/login/status',{cookie:'qqmusic_session=private'},user);
   assert.equal((await response.json()).data.profile.nickname,user);
  }
+ response=await send('/qq/getSongListDetail',{disstid:'12345',cookie:'qqmusic_session=test-session'},'one');
+ assert.equal(response.status,200);
+ assert.equal((await response.json()).response.cdlist[0].songlist[0].songmid,'test-song');
+ const detailCall=calls.at(-1), detailUrl=new URL(detailCall.url);
+ assert.equal(detailUrl.searchParams.get('disstid'),'12345');
+ assert.equal(detailUrl.searchParams.get('cookie'),'qqmusic_session=test-session');
+ assert.equal(detailCall.env.QQ_SESSION_SECRET,'one');
  assert.notEqual(states.get('one'),states.get('two'));
  states.get('one').active=6;
  assert.equal((await send('/netease/login/qr/key')).status,429);

@@ -44,7 +44,7 @@ npm test
 依赖并保留各自许可证：
 
 - [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)，MIT，4.41.1。
-- [QQ Music API](https://github.com/yakult-green-tea/qq-music-api)，MIT，3.1.3；使用不启动额外端口的 serverless 入口及 MQTT 适配。
+- [QQ Music API](https://github.com/yakult-green-tea/qq-music-api)，MIT，3.1.4；使用不启动额外端口的 serverless 入口及 MQTT 适配。
 - [KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi)，MIT，1.6.0。
 - [ws](https://github.com/websockets/ws)，MIT。
 
@@ -63,3 +63,10 @@ SillyTavern 插件部署约定：[官方文档](https://github.com/SillyTavern/S
 ### v0.4.0 多平台搜索
 
 与电波手机 v1.3.12 配套，更新后重启酒馆服务器。增加网易云 `/netease/cloudsearch`、QQ `/qq/getSearchByKey`、酷狗 `/kugou/search`，均为酒馆认证的同源 POST；前端提供独立音源及聚合搜索。参考 Folia 的平台搜索能力与接口协议独立接入，未复制其播放器。QQ 与酷狗公共目录可匿名检索，酷狗登录后走 SDK；播放仍按音乐平台和登录账号权限决定。搜索关键词上限 200 字，固定首页、每次最多 20 条，不允许自定义代理地址。
+
+
+### v0.4.1 官方算法歌单
+
+跟进 Folia 上游 a26dc040，将 QQ Music API 锁定到 3.1.4。登录后，非自建歌单沿用 `/getSongListDetail`，由 SDK 在匿名读取返回 code 10 时使用当前会话重试，支持平台允许读取的官方算法歌单（如百万收藏、歌手漫游），并补齐收藏歌单封面。自建歌单读取不变。
+
+更新后安装锁定依赖并重启酒馆服务器，再在音乐账号中同步歌单；仅刷新网页不会加载新 SDK。需要有效 QQ 登录态，不保证匿名或非公开歌单可读。
