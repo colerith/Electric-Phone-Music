@@ -1,6 +1,6 @@
 {
   "name": "electric-phone-music",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "电波手机 SillyTavern 音乐服务端插件",
   "type": "module",
   "main": "index.js",

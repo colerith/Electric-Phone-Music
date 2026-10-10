@@ -1,3 +1,4 @@
+import { searchQQ, searchKugou } from './search.js';
 import { resolveLyrics } from './lyrics.js';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
@@ -12,10 +13,28 @@ const kugou = require('kugoumusicapi');
 export const info = { id: 'electric-phone-music', name: '电波手机音乐服务', description: '网易云、QQ、酷狗账号与歌单' };
 const common = ['/login/qr/key', '/login/qr/create', '/login/qr/check', '/user/playlist'];
 export const routes = {
-  netease: [...common, '/login/status', '/vip/info', '/playlist/track/all', '/song/url/v1', '/lyric', '/logout'],
-  kugou: [...common, '/user/detail', '/user/vip/detail', '/playlist/track/all', '/song/url', '/register/dev'],
+  netease: [
+    ...common,
+    '/cloudsearch',
+    '/login/status',
+    '/vip/info',
+    '/playlist/track/all',
+    '/song/url/v1',
+    '/lyric',
+    '/logout',
+  ],
+  kugou: [
+    ...common,
+    '/search',
+    '/user/detail',
+    '/user/vip/detail',
+    '/playlist/track/all',
+    '/song/url',
+    '/register/dev',
+  ],
   qq: [
     ...common,
+    '/getSearchByKey',
     '/login/status',
     '/login/channels',
     '/user/playlist-detail',
@@ -26,6 +45,7 @@ export const routes = {
 };
 // No arbitrary proxy URLs, network options, uploads or write-to-playlist endpoints.
 const allowed = new Set([
+  'keywords',
   'timestamp',
   'cookie',
   'key',
@@ -77,7 +97,7 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.3.0', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.0', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -112,12 +132,32 @@ export function installRoutes(router, dependencies = {}) {
         return res.status(400).json({ message: '无效的音乐请求参数' });
       params[key] = value;
     }
+    if (['/cloudsearch', '/getSearchByKey', '/search'].includes(endpoint)) {
+      const keyword = provider === 'qq' ? params.key : params.keywords;
+      if (typeof keyword !== 'string' || !keyword.trim() || keyword.length > 200)
+        return res.status(400).json({ message: '搜索关键词应为 1–200 个字符' });
+      params.limit = 20;
+      if (provider === 'kugou') {
+        delete params.limit;
+        params.pagesize = 20;
+      }
+      params.page = 1;
+      params.offset = 0;
+    }
     let state;
     try {
       state = await stateFor(req.user.directories.root);
       if (state.active >= 6) return res.status(429).json({ message: '音乐请求过多，请稍后再试' });
       state.active++;
       try {
+        if (
+          provider === 'kugou' &&
+          endpoint === '/search' &&
+          !/(?:^|;)\s*token=[^;]+/.test(String(params.cookie || ''))
+        )
+          return res.json(await (dependencies.searchKugou || searchKugou)(params.keywords));
+        if (provider === 'qq' && endpoint === '/getSearchByKey')
+          return res.json(await (dependencies.searchQQ || searchQQ)(params.key));
         if (provider === 'qq') {
           const url = new URL(endpoint, 'https://electric-phone.invalid');
           for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
