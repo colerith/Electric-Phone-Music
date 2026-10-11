@@ -1,3 +1,4 @@
+import { qqNewSongs } from './recommendations.js';
 import { searchQQ, searchKugou } from './search.js';
 import { resolveLyrics } from './lyrics.js';
 import { createRequire } from 'node:module';
@@ -16,6 +17,8 @@ export const routes = {
   netease: [
     ...common,
     '/cloudsearch',
+    '/personalized/newsong',
+    '/recommend/songs',
     '/login/status',
     '/vip/info',
     '/playlist/track/all',
@@ -35,6 +38,7 @@ export const routes = {
   qq: [
     ...common,
     '/getSearchByKey',
+    '/new/songs',
     '/login/status',
     '/login/channels',
     '/user/playlist-detail',
@@ -97,7 +101,7 @@ export function installRoutes(router, dependencies = {}) {
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.2', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.3', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -171,6 +175,8 @@ export function installRoutes(router, dependencies = {}) {
           !/(?:^|;)\s*token=[^;]+/.test(String(params.cookie || ''))
         )
           return res.json(await (dependencies.searchKugou || searchKugou)(params.keywords));
+        if (provider === 'qq' && endpoint === '/new/songs')
+          return res.json(await (dependencies.qqNewSongs || qqNewSongs)());
         if (provider === 'qq' && endpoint === '/getSearchByKey')
           return res.json(await (dependencies.searchQQ || searchQQ)(params.key));
         if (provider === 'qq') {
