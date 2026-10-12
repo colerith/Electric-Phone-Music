@@ -1,6 +1,6 @@
 {
   "name": "electric-phone-music",
-  "version": "0.4.3",
+  "version": "0.4.4-beta.1",
   "description": "电波手机 SillyTavern 音乐服务端插件",
   "type": "module",
   "main": "index.js",
@@ -13,7 +13,10 @@
   "dependencies": {
     "@neteasecloudmusicapienhanced/api": "4.41.1",
     "@yakult-green-tea/qq-music-api": "3.1.4",
+    "cheerio": "1.2.0",
+    "ipaddr.js": "2.5.0",
     "kugoumusicapi": "https://github.com/MakcRe/KuGouMusicApi/archive/refs/tags/v1.6.0.tar.gz",
+    "undici": "7.30.0",
     "ws": "8.18.3"
   },
   "devDependencies": {

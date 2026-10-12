@@ -2,7 +2,7 @@
 
 SillyTavern 服务端插件，与电波手机扩展 v1.3.5+ 配套。把网易云音乐、QQ 音乐与酷狗音乐的登录、账号资料、歌单与播放地址接口放到酒馆内运行，无需单独部署三台 API 服务、开放端口或配置跨域。
 
-当前版本 **0.4.3**：内置 QQ 新歌推荐，以及网易云新歌与登录日推接口。电波手机可直接使用同源推荐服务；QQ 当前提供公开新歌精选，不冒充个人日推。更新后需要重启酒馆服务器。
+当前版本 **0.4.4-beta.1**（2026.10.13，仅 beta 分支）：新增网页预览与 MCP 请求，修复首次安装网易云播放缺少 XEAPI 公钥。原有能力：内置 QQ 新歌推荐，以及网易云新歌与登录日推接口。电波手机可直接使用同源推荐服务；QQ 当前提供公开新歌精选，不冒充个人日推。更新后需要重启酒馆服务器。
 
 ## 安装
 
@@ -10,7 +10,7 @@ SillyTavern 服务端插件，与电波手机扩展 v1.3.5+ 配套。把网易�
 在 **SillyTavern 根目录**打开终端执行：
 
 ```sh
-git clone https://github.com/colerith/Electric-Phone-Music.git plugins/Electric-Phone-Music
+git clone --branch beta https://github.com/colerith/Electric-Phone-Music.git plugins/Electric-Phone-Music
 node plugins/Electric-Phone-Music/install.mjs
 ```
 
@@ -27,7 +27,7 @@ node plugins/Electric-Phone-Music/install.mjs
 - 三个平台：扫码登录、恢复当前浏览器登录、账号资料、个人歌单、曲目分页、平台允许的播放地址。
 - 网易云与酷狗提供会员信息读取；QQ 上游未提供独立会员查询时显示「会员状态暂无法确认」，不推断已开通会员。
 - 平台 cookie/会话仍保存在前端当前浏览器；不写入聊天备份。QQ 的会话加密密钥按酒馆用户存储于 `data/<用户>/electric-phone-music/session-secret`，用于重启后继续校验登录。
-- 请求继承酒馆认证和 CSRF 保护；只开放前端所需的固定路径，不接受代理目标地址，不提供任意转发和修改歌单接口，不把平台 cookie 设置为酒馆 cookie，不记录登录凭据。
+- 请求继承酒馆认证和 CSRF 保护；音乐接口只开放固定路径，不接受代理目标地址，不提供修改歌单接口；新增网页与 MCP 接口仅连接公网 HTTP(S)，逐跳检查地址与 DNS，限制响应大小、时间和并发，不把平台 cookie 设置为酒馆 cookie，不记录登录凭据。
 - 不绕过会员、版权或地区限制；平台接口调整、风控或网络问题可能影响登录和播放。
 
 ## 开发
@@ -77,3 +77,16 @@ SillyTavern 插件部署约定：[官方文档](https://github.com/SillyTavern/S
 ### v0.4.2 收藏详情与翻译歌词
 
 收藏详情通过真实 serverless SDK 路由集成测试，ID 放入路径。参考 Folia 的 GetPlayLyricInfo 协议独立补充 QQ 翻译请求：使用数字歌曲 ID，旧缓存通过稳定 mid 查询对应 ID；请求明文翻译轨，仍加密的原文/音译不当作文本展示，保留旧 LRC、AMLL 等回退。请求哪个附加轨就以该轨决定回退，缺失附加轨仅缓存 30 秒。请求、解析与缓存放在后端，不向手机增加解密计算，不持久化 Base64。
+
+
+## v0.4.4-beta.1 网页工具与初始化修复
+
+只发布到 beta 分支。已有安装先在插件目录执行 `git fetch origin`、`git switch beta`、`git pull --ff-only origin beta`，再在酒馆根目录执行 `node plugins/Electric-Phone-Music/install.mjs` 并重启。PC 与 Termux 同样适用，需 Node.js 22+。
+
+- `/web/preview` 自动读取公网网页的 Open Graph、Twitter Card、JSON-LD 等元信息，最多跟随 4 次跳转。登录、反爬或动态渲染限制可能无法获取预览。
+- `/mcp/request` 实现远程 Streamable HTTP 的初始化、工具发现和调用；支持 JSON 或 SSE 格式的响应、会话清理及工具分页。API Key 由前端用户自行填写，不保存到后端。
+- 两个接口均要求酒馆认证、复用 CSRF 保护；不转发酒馆凭据，限制为公网 HTTP(S)，逐跳验证并在连接时检查 DNS，拒绝本机、内网和保留地址。代理 Fake-IP DNS 需为目标域名切换真实 DNS。
+- 首次启动尝试运行网易云 SDK 官方配置初始化，播放前再次确认 XEAPI 公钥。合并并发初始化，30 秒超时、失败后 15 秒冷却可重试；已有有效配置不重复生成。子进程不输出含潜在账号信息的上游日志，不修改登录状态。修复新装后扫码和歌单正常但 `/song/url/v1` 因 `xeapi public key is missing` 返回 502。
+- 兼容旧版音乐前端；网页与 MCP 功能需电波手机 v1.3.54-beta.3。无需迁移旧账号或歌单数据。
+
+使用教程见 [前端 beta 说明](https://github.com/colerith/Electric-Phone/blob/beta/BETA-WEB-TOOLS.md)。感谢用户提供网易云公钥问题的复现线索。新增依赖：Cheerio（MIT）、Undici（MIT）、ipaddr.js（MIT），保留各自许可证。

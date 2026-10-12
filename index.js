@@ -7,6 +7,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { handleRequest } from '@yakult-green-tea/qq-music-api/serverless';
 import { createRelay } from './relay.js';
+import { installWebTools } from './web-tools.js';
+import { ensureNeteaseConfig } from './netease-init.js';
 const require = createRequire(import.meta.url);
 const netease = require('@neteasecloudmusicapienhanced/api');
 const kugou = require('kugoumusicapi');
@@ -96,12 +98,13 @@ async function userState(root) {
   return users.get(root);
 }
 export function installRoutes(router, dependencies = {}) {
+  installWebTools(router);
   const stateFor = dependencies.userState || userState;
   const libraries = dependencies.libraries || { netease, kugou };
   const qq = dependencies.qq || handleRequest;
   router.get('/health', (req, res) => {
     if (!req.user?.directories?.root) return res.status(401).json({ message: '请先登录酒馆' });
-    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.3', providers: ['netease', 'qq', 'kugou'] });
+    res.set('Cache-Control', 'no-store').json({ id: info.id, version: '0.4.4-beta.1', providers: ['netease', 'qq', 'kugou'] });
   });
   router.post('/lyrics', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -192,6 +195,10 @@ export function installRoutes(router, dependencies = {}) {
           return res.status(upstream.status).json(await upstream.json());
         }
         const method = endpoint.slice(1).replaceAll('/', '_');
+        if (provider === 'netease' && endpoint === '/song/url/v1') {
+          try { await (dependencies.ensureNeteaseConfig || ensureNeteaseConfig)(); }
+          catch { return res.status(503).json({ message: '网易云播放配置尚未准备好，请检查服务器网络并稍后重试；无需重新登录' }); }
+        }
         const result = await libraries[provider][method](params);
         const body = result.body || result;
         // Return login cookies as JSON only; never set music cookies on the SillyTavern origin.
@@ -207,6 +214,7 @@ export function installRoutes(router, dependencies = {}) {
 }
 export async function init(router) {
   installRoutes(router);
+  void ensureNeteaseConfig().catch(() => console.warn('[Electric-Phone] 网易云播放配置初始化未完成，首次播放时将自动重试。'));
 }
 export async function exit() {
   await Promise.all(
